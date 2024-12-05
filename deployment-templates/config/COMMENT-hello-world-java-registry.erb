@@ -1,0 +1,28 @@
+### hello-world-java-registry.erb is a json file, which does not play well with comments. So insteads, I opted to write this COMMENT file to provide notes on the hello-world-java-registry.erb file
+
+### This file is the application's consul config file. As a part of the startup process, the start-service script will copy this file to consul config folder and reload consul agent. Consul will then find and read this file to know how to perform health check on the application
+{
+"service":{
+      # Setting the consul agent service name. This is the name that will show up on the consul gui servers. The value of consul.servicename comes from guiderails.yaml file
+      "name":"<%= p('consul.servicename') %>",
+      "tags":[
+         # Setting service tag to distinguish consul agents with the same service name. Default to primary if consul.tag is not specified. The vaule of consul.tag comes from guiderails.yaml
+         "<%= p("consul.tag", "primary") %>"
+         ],
+      # Setting the listening address, the url/ip of the server to monitor. Default to localhost   
+      "address":"",
+      # Setting the listening port. The value of server.port comes from guiderails.yaml
+      "port":<%= p("server.port") %>,
+      # Disable tag override
+      "enable_tag_override":false,
+      # Setting the health check condition
+      "checks":[
+         {
+            # Run a curl command against localhost at server.port. If the command passes, consul agent will report consul server cluster that the application is up and healthy   
+            "script":"curl http://127.0.0.1:<%= p('server.port') %>",
+            # Set the time interval between each health check. Default to 10s.
+            "interval":"10s"
+         }
+      ]
+   }
+}

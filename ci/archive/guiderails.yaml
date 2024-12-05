@@ -1,0 +1,605 @@
+# guiderails.yaml is the source code of the Guide-Rails® CI pipeline for your repository.
+# Any property within (()) allows you to re-use a property definition from
+# anywhere in this YML, as long as it does not resolve to an 'Array' or 'Map'
+---
+# APPLICATION: Define basic properties for your application here
+application:
+  # Application name
+  name: hello-world-java
+  # Accepted language defintions are golang, java, nodejs
+  language: java
+  # SCM properties (currently only supports GIT with SSH URL's)
+  slack_channel: "#java-demo-gr-alerts"
+  scm:
+    git:
+      cloneURL: ssh://git@git.calculi.com:7999/calculi/hello-world-java.git
+  # Specify where your build artifacts will be stored
+  # (Currently only supports S3. Support for 'Artifactory' will be available soon)
+  artifact_store:
+    type:
+      s3:
+        bucket: calculi-guide-rails
+  # Specify the URL for SonarQube here
+  sonar_url: http://sonarqube.service.calculi.io:9000/
+  # Define how you want the versioning scheme for this pipeline to start
+  # Defaults to 0.0.1
+  initial_version: 0.0.1
+
+# PIPELINE: Define what your pipeline will do here
+# Supported segments in the pipeline are -
+# - development
+# - isolation
+# - integration
+# - release
+# - production
+pipeline:
+  # Development is the first segment in a pipeline. Development includes three phases
+  # Lint - Linting is the process of running a program that will analyse code for potential errors.
+  # Unit - Execution of unit tests, resulting in generation of unit test and code coverage results.
+  # Build - Execute build script/command to compile code and generate binary
+  # Sonar analysis - Analyze source code, unit test results and code coverage results and publish to SonarQube
+  development:
+    # NOTE: PLEASE ENSURE YOUR OUTPUTS FROM LINT AND UNIT TEST EXECUTION ARE COPIED TO TO THE ${SONAR} DIRECTORY
+    # This is the path configured in the pipeline from where reports are processed for Sonar analysis
+    lint: |
+    unit: |
+    # NOTE: PLEASE ENSURE YOUR BUILD ARTIFACTS ARE COPIED TO TO THE ${BINOUT} PATH
+    # VERSION - This variable contains the version which is required to be associated with the built artifact.
+    # The artifact generated from this build process is required to have the version in the VERSION variable.
+    build: |
+      #header "Dependencies: Install build-essential utilities (e.g. make, gcc)"
+      #apt-get install build-essential
+
+      header "Dependencies: Install Gnu Make"
+      apt-get install make
+
+      #header "DEBUG: 'make about-*'"
+      #make about-make
+      #make about-dir
+      #make about-user
+      #make about-env
+      #make about-git
+      #make about-go
+
+      header "Build, Test & Verify the Source Code"
+      #./gradlew build test check
+      make all
+
+      # INFO: Output a list of the files in ./build/
+      find './build/'
+      #find './build/sonar/'
+
+      header "Publish Binaries to BINOUT"
+      # HACK: the current GR/YAML version doesn't allow multiple files in $BINOUT
+      cp build/libs/hello-world-java*-bin.jar "${BINOUT}/"
+      #cp build/libs/hello-world-java*.jar "${BINOUT}/"
+
+      # INFO: Output a list of the files in ${BINOUT}/
+      find "${BINOUT}/"
+
+      header "Publish Reports to SONAR"
+      cp -r ./build/sonar/* "${SONAR}/"
+
+      # INFO: Output a list of the files in ${SONAR}/
+      find "${SONAR}/"
+
+    # Specify the name of the artifact generated from the build here, that is required to be published. Defaults to ((application.name))
+    # NOTE: Do not mention the artifact extension here
+    artifact_name: ((application.name))
+    # Specify what type of artifact is generated and required to be published here
+    artifact_extension: jar
+    # This section generates the Sonar code coverage reports, and also copies the application
+    # source code and unit test outputs into a directory from where the pipeline executes the
+    # Sonar scanning process.
+    sonar:
+      # Name of the Sonar project
+      name: ((application.name))-analysis
+      # Project key
+      key: ((application.name))
+      # Source folders to include for scanning
+      source: ./
+      # Define any additional Sonar analysis properties here
+      additional_properties:
+        # Files to exclude for Sonar analysis
+        sonar.java.binaries: "build"
+    # Define the notifications section for the 'development' segment
+    # Allowed notifications are Email or Slack
+    # Notifications can be sent 'on_failure' or 'on_success'
+    notifications:
+      on_failure:
+        mode:
+          slack:
+            # Mention the name of the Slack channel
+            channel: ((application.slack_channel))
+            # In this section the user can define a custom message to be sent with the notification
+            text: |
+              MESSAGE - This is the development pipeline for ((application.name))
+      #on_success:
+      #  # DEBUG: CI Pipeline testing: The on_success alert exists solely to test that on_success alerts work properly.
+      #  mode:
+      #    slack:
+      #      # Mention the name of the Slack channel
+      #      channel: ((application.slack_channel))
+      #      # In this section the user can define a custom message to be sent with the notification
+      #      text: |
+      #        MESSAGE - SUCCESS! This is the development pipeline for ((application.name))
+
+  # DEPLOYMENT: Define your application deployment properties here
+  deployment:
+    # Application deployment platform. This platform should match the stemcell being referenced
+    platform: linux
+    # Archetype of your OS flavour
+    archetype: x86_64
+    # Stemcell to be used from the BOSH cloud config (OS)
+    # A BOSH stemcell associates with the OS to use for running the application
+    # stemcell: default
+    # Packages required for install and running your application
+    # In case of a GO application, we will be defining a 'Go' package
+    packages:
+      # In this section we define our application package & any dependent packages and how to 'unpack' them
+      # in the VM running the application. All packages by default get unpacked into
+      # a folder /var/vcap/packages/<package name>
+      - name: java
+        # The dependencies block is used for specifying dependecies for your package
+      #  dependencies:
+        # Here you define the link to download your package and upload to S3
+        files:
+          - download_link: https://s3.amazonaws.com/calculi-middleware/jdk-8u161-linux-x64.tar.gz 
+            binary_name: jdk-8u161-linux-x64.tar.gz
+        # Steps to install this package
+        # NOTE: BOSH_INSTALL_TARGET is the default installation directory for every package.
+        # You do not need to update the target unless really necessary
+        package_install_script: |
+          set -ex
+          tar xfv java/jdk-8u161-linux-x64.tar.gz
+          cp -a jdk1.8.0_161/* $BOSH_INSTALL_TARGET
+      # Package name - Here you define packaging steps for your application
+      - name: ((application.name))
+        # Package dependencies
+        dependencies:
+          - java
+        # Installation steps for package
+        package_install_script: |
+          set -ex
+
+          cp -R ((application.name))*.jar ${BOSH_INSTALL_TARGET}/((application.name)).jar
+    deployment_templates:
+      # Define the paths to any config files or scripts within your repository, which
+      # are required to be copied over to the target VM in a sub-directory within the job
+      # folder - /var/vcap/jobs/<jobname> (Where 'jobname' is the name of your application).
+      - deployment-templates/config/((application.name))-registry.erb: config/((application.name))-registry.json
+      - deployment-templates/config/((application.name))-datadog-agent.yaml.erb: config/((application.name))-datadog-agent.yaml
+      - deployment-templates/bin/start-service.erb: bin/start-service.sh
+    # This is the entrypoint script being executed on the VM to start your application
+    # NOTE: This script should be defined in the 'deployment_templates' section, and needs to be
+    # copied over to the 'bin' folder.
+    entrypoint: start-service.sh
+    # Any arguments you may want to pass to your entrypoint script defined above
+    args:
+      - --app ((application.name))
+    # Here you describe the properties requried for deploying your application
+    # Properties defined here can be used in your templates defined under the 'deployment_templates' section.
+    # The values defined here are the 'DEFAULT' values for your application, which can be overriden from the
+    # definition within each deployment target.
+    default_properties:
+      # Property name.
+      consul.servicename:
+        # Short description of the property
+        description: The name of the service as it would register with Consul
+        # 'DEFAULT' value of the property
+        value: ((application.name))-DEV-((application.scm.git.branch))
+      consul.environment:
+        description: The application environment
+        value: DEV
+      consul.datacenter:
+        description: Datacenter in Consul for registration and lookup
+        value: dc1
+      consul.domain:
+        description: Consul domain
+        value: consul
+      consul.tag:
+        description: Consul tag to register service
+        value: ((application.scm.git.sha))
+      consul.tag:
+        description: The tag to differentiate rabbitmq clusters (i.e. git commit SHA)
+        value: primary
+      certificate.base.location:
+        description: Base path of the Certificates
+        value: /etc/sv/monit
+      server.port:
+        description: The port for the service.
+        value: 8080
+      java.application.name:
+        description: The application name on datadog report
+        value: ((application.name))
+      java.datadog_agent:
+        description: Switch on to enable datadog report for the application
+        value: false
+    # In this section of the template we define the deployment targets and properties
+    # related to those targets. Allowed targets are - 'isolation', 'integration', 'release' & 'production'
+    targets:
+      # Isolation testing is the process of breaking down the system into various modules
+      # so that defects can be spotted easily in isolation.
+      isolation:
+        parents: [development]
+        notifications:
+          on_failure:
+            mode:
+              slack:
+                channel: ((application.slack_channel))
+              text: |
+                MESSAGE - Isolation pipeline failure for ((application.name)) ((application.scm.git.branch))
+        # If set to 'false', the VMs will not NOT be deleted post a successful deployment
+        delete_instances: true
+        # Define the update mechanism for the isolation segment
+        update:
+          canaries: 0
+          max_in_flight: 2
+          canary_watch_time: 1-12000
+          update_watch_time: 1-12000
+        # Define your application properties in this section ONLY if you want to override the DEFAULT
+        # values defined above. Properties defined here have to be declared above as well.
+        properties:
+          consul.servicename: ((application.name))-ISO-((application.scm.git.branch))
+          consul.tag: ((application.scm.git.sha))
+          java.datadog_agent: true
+          java.application.name: ((application.name))
+        # An instance group defintion allows you to deploy your application and dependencies
+        # into a targeted Cloud infrastructure.
+        instance_groups:
+          # This section defines VM properties for application deployment
+          # NOTE: Your application will be deployed with the first instance group defined in the application template
+          # Name of the instance group
+          - name: ((application.name))
+          # Number of instances to be deployed
+            instances: 1
+            # Volume on each VM (in MB)
+            persistent_disk: 10240
+            # Network to be used from the BOSH cloud config networks
+            networks:
+              - calculi-isolation-private
+            # Stemcell to be used from the BOSH cloud config stemcells
+            stemcell: default
+            # VM type - again from the BOSH cloud config
+            vm_type: small
+            # Availability zones - depends on the n/w you have chosen - another BOSH cloud config definition
+            azs: [aws-east-1a]
+            # Here you define the jobs your application depends on
+            jobs:
+                # This is an example of a job definition which is a BOSH package
+                # Name of the job
+              - name: consul
+                # BOSH release name - alias matching the release defintion from the 'releases' block below
+                # NOTE: A BOSH dependent release cannot have an 'entrypoint' definition, since you are using
+                # a pre-packaged release in your job.
+                release: consul
+                # Property definitions for this BOSH package. All properties MUST have a name, description and value as shown below
+                # Properties can be defined in the following ways:
+                # 1. consul.servicename - This gets transformed into a two level nested property defintion in the resulting manifest as shown below:
+                #     consul:
+                #       servicename: <Value>
+                # 2. vault.storage.encryption - This gets transformed into a three level nested property definition in the resulting manifest as shown below:
+                #     vault:
+                #       storage:
+                #         encryption: <Value>
+                # 3. logging - This is translated as it is defined.
+                # NOTE: The GR CLI only supports three levels of nesting in property defintions.
+                properties:
+                  # Property name
+                  calculi.intermediate.cert: vault secret/((organization.name))/certs/calculi:devcert
+                  calculi.intermediate.key: vault secret/((organization.name))/certs/calculi:devkey
+                  consul.servicename: ((application.name))-ISO-((application.scm.git.branch))
+                  consul.environment: DEV
+                  consul.server: false
+                  consul.datacenter: dc1
+                  consul.domain: consul
+                  consul.joinservers: "[10.21.128.4, 10.21.128.5, 10.21.128.6]"
+                  consul.application.name: consul
+                  consul.datadog_agent: true
+              - name: syslog_forwarder
+                release: syslog_storer
+                properties:
+                  syslog.address: syslog.calculi.io
+                  syslog.port: 514
+                  syslog.transport: tcp
+                  syslog.fallback_servers: "[{address: syslog.calculi.io, port: 514, transport: tcp}]"
+                  syslog.tls_enabled: true
+                  syslog.ca_cert: vault secret/((organization.name))/syslog/ca:syslog_ca_cert
+                  syslog.datadog_agent: true
+                  syslog.application.name: syslog
+                  consul.environment: DEV
+                  consul.servicename: ((application.name))-syslog-ISO-((application.scm.git.branch))
+                  consul.verify_incoming: false
+                  consul.datacenter: dc1
+              - name: dd-agent
+                release: datadog-agent
+                properties:
+                  dd.use_dogstatsd: yes
+                  dd.api_key: vault secret/((organization.name))/datadog/agent:api_key
+                  dd.tags: '["datadog", "bosh", "bosh:bosh-exp"]'
+
+      # Integration testing (sometimes called integration and testing, abbreviated I&T)
+      # is the phase in software testing in which individual software modules are combined
+      # and tested as a group.
+      # Definition of an 'Integration' deployment setup
+      integration:
+        parents: [development]
+        notifications:
+          on_failure:
+            mode:
+              slack: ((application.slack_channel))
+              text: |
+                MESSAGE - Integration run failed for ((application.name)) ((application.scm.git.branch))
+        delete_instances: true
+        update:
+          canaries: 2
+          max_in_flight: 2
+          canary_watch_time: 1-12000
+          update_watch_time: 1-12000
+        properties:
+          consul.servicename: ((application.name))-INT-((application.scm.git.branch))
+          consul.tag: ((application.scm.git.sha))
+          java.datadog_agent: true
+          java.application.name: ((application.name))
+        instance_groups:
+          - name: ((application.name))
+            instances: 1
+            persistent_disk: 10240
+            networks:
+              - calculi-isolation-private
+            stemcell: default
+            vm_type: small
+            azs: [aws-east-1a]
+            jobs:
+              - name: consul
+                release: consul
+                properties:
+                  calculi.intermediate.cert: vault secret/((organization.name))/certs/calculi:devcert
+                  calculi.intermediate.key: vault secret/((organization.name))/certs/calculi:devkey
+                  consul.servicename: ((application.name))-INT-((application.scm.git.branch))
+                  consul.environment: DEV
+                  consul.server: false
+                  consul.datacenter: dc1
+                  consul.domain: consul
+                  consul.joinservers: "[10.21.128.4, 10.21.128.5, 10.21.128.6]"
+                  consul.application.name: consul
+                  consul.datadog_agent: true
+              - name: syslog_forwarder
+                release: syslog_storer
+                properties:
+                  syslog.address: syslog.calculi.io
+                  syslog.port: 514
+                  syslog.transport: tcp
+                  syslog.fallback_servers: "[{address: syslog.calculi.io, port: 514, transport: tcp}]"
+                  syslog.tls_enabled: true
+                  syslog.ca_cert: vault secret/((organization.name))/syslog/ca:syslog_ca_cert
+                  syslog.datadog_agent: true
+                  syslog.application.name: syslog
+                  consul.environment: DEV
+                  consul.servicename: ((application.name))-syslog-INT-((application.scm.git.branch))
+                  consul.verify_incoming: false
+                  consul.datacenter: dc1
+              - name: dd-agent
+                release: datadog-agent
+                properties:
+                  dd.use_dogstatsd: yes
+                  dd.api_key: vault secret/((organization.name))/datadog/agent:api_key
+                  dd.tags: '["datadog", "bosh", "bosh:bosh-exp"]'
+
+      # System testing by the development team should focus on discovering bugs in the system
+      # (defect testing). The objective of release testing is to check that the system meets
+      # its requirements and is good enough for external use
+      release:
+        parents: [development, isolation, integration]
+        notifications:
+          on_failure:
+            mode:
+              slack:
+                channel: ((application.slack_channel))
+              text: |
+                MESSAGE - Release pipeline for ((application.name)) FAILED
+        delete_instances: true
+        update:
+          canaries: 2
+          max_in_flight: 2
+          canary_watch_time: 1-12000
+          update_watch_time: 1-12000
+        properties:
+          consul.servicename: ((application.name))-REL-((application.scm.git.branch))
+          consul.tag: ((application.scm.git.sha))
+          java.datadog_agent: true
+          java.application.name: ((application.name))
+        instance_groups:
+          - name: ((application.name))
+            instances: 1
+            persistent_disk: 10240
+            networks:
+              - calculi-release-private
+            stemcell: default
+            vm_type: small
+            azs: [aws-east-1c]
+            jobs:
+              - name: consul
+                release: consul
+                properties:
+                  calculi.intermediate.cert: vault secret/((organization.name))/certs/calculi:devcert
+                  calculi.intermediate.key: vault secret/((organization.name))/certs/calculi:devkey
+                  consul.servicename: ((application.name))-REL-((application.scm.git.branch))
+                  consul.environment: DEV
+                  consul.server: false
+                  consul.datacenter: dc1
+                  consul.domain: consul
+                  consul.joinservers: "[10.21.128.4, 10.21.128.5, 10.21.128.6]"
+                  consul.application.name: consul
+                  consul.datadog_agent: true
+              - name: syslog_forwarder
+                release: syslog_storer
+                properties:
+                  syslog.address: syslog.calculi.io
+                  syslog.port: 514
+                  syslog.transport: tcp
+                  syslog.fallback_servers: "[{address: syslog.calculi.io, port: 514, transport: tcp}]"
+                  syslog.tls_enabled: true
+                  syslog.ca_cert: vault secret/((organization.name))/syslog/ca:syslog_ca_cert
+                  syslog.datadog_agent: true
+                  syslog.application.name: syslog
+                  consul.environment: DEV
+                  consul.servicename: ((application.name))-syslog-REL-((application.scm.git.branch))
+                  consul.verify_incoming: false
+                  consul.datacenter: dc1
+              - name: dd-agent
+                release: datadog-agent
+                properties:
+                  dd.use_dogstatsd: yes
+                  dd.api_key: vault secret/((organization.name))/datadog/agent:api_key
+                  dd.tags: '["datadog", "bosh", "bosh:bosh-exp"]'
+      
+      # Release to Production
+      production:
+        parents: [release]
+        notifications:
+          on_failure:
+            mode:
+              slack:
+                channel: ((application.slack_channel))
+              text: |
+                MESSAGE - This is the production pipeline for ((application.name))
+          on_success:
+            mode:
+              slack:
+                channel: ((application.slack_channel))
+                text: |
+                  MESSAGE - This is the production pipeline for ((application.name))
+        delete_instances: false
+        update:
+          canaries: 2
+          max_in_flight: 2
+          canary_watch_time: 1-12000
+          update_watch_time: 1-12000
+        properties:
+          consul.servicename: ((application.name))
+          consul.environment: PROD
+          consul.datacenter: mgmt
+          consul.domain: calculi.io
+          consul.tag: ((application.scm.git.sha))
+          java.datadog_agent: true
+          java.application.name: ((application.name))
+        instance_groups:
+          - name: ((application.name))
+            instances: 1
+            persistent_disk: 10240
+            networks:
+              - calculi-production-private
+            stemcell: default
+            vm_type: small
+            azs: [aws-east-1d]
+            jobs:
+              - name: consul
+                release: consul
+                properties:
+                  calculi.intermediate.cert: vault secret/((organization.name))/certs/calculi:devcert
+                  calculi.intermediate.key: vault secret/((organization.name))/certs/calculi:devkey
+                  consul.servicename: ((application.name))
+                  consul.environment: PROD
+                  consul.server: false
+                  consul.joinservers: "[10.12.128.4, 10.12.128.5, 10.12.128.6]"
+                  consul.datacenter: mgmt
+                  consul.domain: calculi.io
+                  consul.application.name: consul
+                  consul.datadog_agent: true
+              - name: syslog_forwarder
+                release: syslog_storer
+                properties:
+                  syslog.address: syslog-0.node.calculi.io
+                  syslog.port: 514
+                  syslog.transport: tcp
+                  syslog.fallback_servers: "[{address: syslog-1.node.calculi.io, port: 514, transport: tcp}]"
+                  syslog.tls_enabled: true
+                  syslog.ca_cert: vault secret/((organization.name))/syslog/ca:syslog_ca_cert
+                  syslog.datadog_agent: true
+                  syslog.application.name: syslog
+                  consul.environment: PROD
+                  consul.servicename: ((application.name))-syslog
+                  consul.verify_incoming: false
+                  consul.datacenter: mgmt
+              - name: dd-agent
+                release: datadog-agent
+                properties:
+                  dd.use_dogstatsd: yes
+                  dd.api_key: vault secret/((organization.name))/datadog/agent:api_key
+                  dd.tags: '["datadog", "bosh", "bosh:bosh-exp"]'
+    # Define the BOSH releases you would like to create or use for deployment
+    releases:
+    # This is the 'consul' release (used as an example), and its related version
+    # NOTE this release name is referenced in the jobs block above
+    - name: consul
+      version: 0.0.25
+    - name: syslog_storer
+      version: latest
+    - name: datadog-agent
+      version: latest
+  # TESTING: Define what is required to test your application
+  #testing:
+    #isolation:
+      #test_templates:
+      #entrypoint:
+      #args:
+        #-
+      #packages:
+        #- name: isolation-tests
+          #files:
+            #- download_link: https://dl.google.com/go/go1.10.linux-amd64.tar.gz
+              #binary_name: go1.10.linux-amd64.tar.gz
+          #package_install_script: |
+            #set -ex
+            #tar xzf isolation-tests/go*linux-amd64*.tar.gz
+            #cp -R go/* ${BOSH_INSTALL_TARGET}
+    #integration:
+      #test_templates:
+        #- test/integration_test/integration_test.go: tests/integration_test.go
+        #- test/integration_test/start-tests.sh: bin/start-tests.sh
+      #entrypoint: start-tests.sh
+      #args:
+        #-
+      #packages:
+        #- name: integration-tests
+          #files:
+          #package_install_script: |
+            #set -ex
+            #echo "Running package install for Integration Test"
+
+# Infrastructure specific properties
+infrastructure:
+  notification:
+    slack:
+      url: https://hooks.slack.com/services/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
+  idgenerator:
+    image:
+      name: artifactory-dev.calculi.com:8500/gr-id-generator
+      version: latest
+      location: artifactory-dev.calculi.com:8500
+  emitter:
+    image:
+      name: artifactory-dev.calculi.com:8500/guide-rails-emitter
+      version: latest
+      location: artifactory-dev.calculi.com:8500
+  pipeline:
+    image:
+      name: artifactory-dev.calculi.com:8500/pipeline-image-repiper
+      version: latest
+      location: artifactory-dev.calculi.com:8500
+  development:
+    image:
+      name: artifactory-dev.calculi.com:8500/pipeline-image-java-tools
+      version: latest
+      location: artifactory-dev.calculi.com:8500
+  deployment:
+    image:
+      name: artifactory-dev.calculi.com:8500/pipeline-image-bosh
+      version: latest
+      location: artifactory-dev.calculi.com:8500
+  stemcells:
+   - alias: default
+     os: ubuntu-trusty
+     version: latest
+

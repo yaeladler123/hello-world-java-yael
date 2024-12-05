@@ -1,0 +1,199 @@
+buildscript {
+    repositories {
+        mavenCentral();
+        jcenter ()
+    }
+    dependencies {
+        classpath(
+//            "org.springframework:spring-web:5.0.6.RELEASE",
+//            "org.springframework:spring-context:5.0.6.RELEASE",
+            "com.netflix.nebula:gradle-lint-plugin:latest.release",
+//            "org.springframework.boot:spring-boot:2.0.2.RELEASE",
+//            "org.springframework.boot:spring-boot-autoconfigure:2.0.2.RELEASE",
+            "org.springframework.boot:spring-boot-gradle-plugin:2.0.2.RELEASE",
+            "gradle.plugin.com.kageiit:jacobo-plugin:2.0.5"
+        )
+    }
+}
+
+plugins {
+    id  'com.github.spotbugs' version '1.6.1'
+}
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'idea'
+apply plugin: 'io.spring.dependency-management'
+
+// Note: version bumping is handled outside of Gradle (by Guide-Rails®),
+// but the embedding of the version in artifacts' filenames is handled by Gradle
+// see: [Read project version number dynamically, from a file? - Help/Discuss - Gradle Forums](https://discuss.gradle.org/t/read-project-version-number-dynamically-from-a-file/22607/3)
+def appVersion =  "v" + rootProject.file('version').text.trim()
+//def appVersion =  "v" + rootProject.file('version').text.trim().replace(".", "_")
+
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/)
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/#reacting-to-other-plugins)
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/#reacting-to-other-plugins-java)
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/#reacting-to-other-plugins-application)
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/#reacting-to-other-plugins-dependency-management)
+apply plugin: 'org.springframework.boot'
+// see: [Spring Boot Gradle Plugin Reference Guide](https://docs.spring.io/spring-boot/docs/current-SNAPSHOT/gradle-plugin/reference/html/#packaging-executable-configuring-main-class)
+bootJar {
+    baseName = 'hello-world-java'
+    classifier = 'bin'
+
+//    version =  '0.0.1'
+    version =  appVersion
+
+    // include additional files in the JAR
+    from {
+        ["LICENSE"]
+    }
+}
+
+
+// create additional JARs for the app source files and javadoc of the source
+// see: [java - How to build sources jar with gradle - Stack Overflow](https://stackoverflow.com/questions/11474729/how-to-build-sources-jar-with-gradle/11475089#11475089)
+task sourcesJar(type: Jar, group: 'Distribution',
+        description: 'Bundles the project source files as a JAR.',
+        dependsOn: classes) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+
+    baseName =  bootJar.baseName
+    version =  bootJar.version
+
+    // include additional files in the JAR
+    from {
+        ["LICENSE"]
+    }
+}
+
+task javadocJar(type: Jar, group: 'Distribution',
+        description: 'Bundles the project javadoc output as a JAR.',
+        dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from javadoc.destinationDir
+
+    baseName =  bootJar.baseName
+    version =  bootJar.version
+
+    // include additional files in the JAR
+    from {
+        ["LICENSE"]
+    }
+}
+
+artifacts {
+    archives sourcesJar
+    archives javadocJar
+}
+
+
+repositories {
+    mavenCentral()
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+    compile 'org.springframework.boot:spring-boot-starter-web'
+    compile 'org.springframework.boot:spring-boot:2.0.2.RELEASE'
+    compile 'org.springframework:spring-context:5.0.6.RELEASE'
+    compile 'org.springframework:spring-web:5.3.20'
+    compile 'org.springframework:spring-beans:5.3.20'
+    compile 'org.springframework.boot:spring-boot-autoconfigure:2.0.2.RELEASE'
+    testCompile group: 'junit', name: 'junit', version:'4.12'
+}
+
+// see: [The Application Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/application_plugin.html)
+apply plugin: 'application'
+// the 'application' plugin enables a 'gradle run' task
+// mainClassName is the only setting required by the 'application' plugin
+mainClassName = 'hello.Application'
+//applicationDefaultJvmArgs = ["-Dgreeting.language=en"]
+//executableDir = "custom_bin_dir"
+
+
+// see: [The JaCoCo Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/jacoco_plugin.html)
+apply plugin: "jacoco"
+jacocoTestReport {
+    reports {
+        xml.enabled true
+        csv.enabled true
+        html.enabled true
+//        html.destination file("${buildDir}/jacocoHtml")
+        html.destination file("${buildDir}/reports/jacoco/html")
+    }
+}
+jacocoTestReport.dependsOn("test")
+
+
+// The jacobo plugin convert JaCoCo coverage reports to Cobertura coverage reports
+// see: [kageiit/gradle-jacobo-plugin](https://github.com/kageiit/gradle-jacobo-plugin)
+// see: [gradle-jacobo-plugin/build.gradle at master · kageiit/gradle-jacobo-plugin](https://github.com/kageiit/gradle-jacobo-plugin/blob/master/example/build.gradle)
+apply plugin: "com.kageiit.jacobo"
+import com.kageiit.jacobo.JacoboTask
+task jacoboTestReport(type: JacoboTask, group: 'Verification',
+        description: 'Generates a Cobertura-format coverage report from the jacocoTestReport output.',
+        dependsOn: jacocoTestReport) {
+    it.jacocoReport = file("${project.buildDir}/reports/jacoco/test/jacocoTestReport.xml")
+    it.coberturaReport = file("${project.buildDir}/reports/cobertura/cobertura.xml")
+    it.srcDirs = sourceSets.main.java.srcDirs
+
+    // Only output coverage for selected file names. Set to [] to output for all files
+    //it.includeFileNames = ['File1.java', 'File2.java']
+    it.includeFileNames = []
+}
+
+
+// see: [The Checkstyle Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/checkstyle_plugin.html)
+apply plugin: 'checkstyle'
+
+// see: [nebula-plugins/gradle-lint-plugin](https://github.com/nebula-plugins/gradle-lint-plugin)
+//apply plugin: 'nebula.lint'
+//gradleLint {
+//  rules  = ['dependency-parentheses']
+//  criticalRules = [''] // <-- this will fail the build in the event of a violation
+//}
+
+// see: [The FindBugs Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/findbugs_plugin.html)
+// Warning: FindBugs is not fully compatible with Java 9. It generates a report, but outputs warnings/errors while running.
+apply plugin: 'findbugs'
+//findbugs {
+//    ignoreFailures = false
+//    toolVersion = "3.0.1"
+//    sourceSets=[sourceSets.main]
+//    excludeFilter = file("config/findbugs/excludeFilter.xml")
+//    reportsDir = file("$project.buildDir/reports/findbugs")
+//    effort = "max"
+//}
+tasks.withType(FindBugs) {
+    reports {
+// Note: FindBugs tasks can only have one report enabled, however more than one report was enabled. You need to disable all but one of them.
+        xml.enabled true
+        html.enabled false
+//        html.stylesheet resources.text.fromFile('config/xsl/findbugs-custom.xsl')
+    }
+}
+
+// see: [SpotBugs](https://spotbugs.github.io/)
+// see: [spotbugs/spotbugs](https://github.com/spotbugs/spotbugs)
+spotbugs {
+    toolVersion = '3.1.3'
+}
+// To generate an HTML report instead of XML
+tasks.withType(com.github.spotbugs.SpotBugsTask) {
+    reports {
+        xml.enabled = true
+        html.enabled = false
+    }
+}
+
+// see: [The JDepend Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/jdepend_plugin.html)
+// Warning: JDepend is not fully compatible with Java 8. It generates a report, but outputs warnings/errors while running.
+apply plugin: 'jdepend'
+
+// see: [The PMD Plugin - Gradle User Manual](https://docs.gradle.org/current/userguide/pmd_plugin.html)
+apply plugin: 'pmd'

@@ -1,0 +1,1032 @@
+{
+	"metadata": {
+		"version": 1
+	},
+	"application": {
+		"name": "hello-world-java",
+		"language": "JAVA_GRADLE",
+		"artifact_store": {
+			"type": "s3",
+			"repositories": [
+				{
+					"category": "rc-packaging",
+					"bucket": "guide-rails-calculi-rc"
+				},
+				{
+					"category": "final-packaging",
+					"bucket": "guide-rails-calculi-final"
+				},
+				{
+					"category": "logs",
+					"bucket": "guide-rails-calculi-logs"
+				}
+			]
+		}
+	},
+	"pipeline": {
+		"segments": [
+			{
+				"name": "Build",
+				"segment_type": "build",
+				"job_steps": [
+					{
+						"name": "get-ups-aptget",
+						"definition": "get-ups-aptget",
+						"command": "echo 'Configuring apt-get'\napt-get -y update",
+						"properties": []
+					},
+					{
+						"name": "get-deps-make",
+						"definition": "get-deps-make",
+						"command": "echo 'Installing Gnu Make'\napt-get -f -y install make",
+						"properties": []
+					},
+					{
+						"name": "DEBUG-env",
+						"definition": "DEBUG-env",
+						"command": "set +e\nmake about-make\nmake about-dir\nmake about-user\nmake about-env\nmake about-git\nmake about-java\nmake about-gradle\nset -e",
+						"properties": []
+					},
+					{
+						"name": "build",
+						"definition": "build",
+						"command": "make all",
+						"properties": []
+					},
+					{
+						"name": "DEBUG-dir-build",
+						"definition": "DEBUG-dir-build",
+						"command": "find './build/'",
+						"properties": []
+					},
+					{
+						"name": "copy-jar",
+						"definition": "copy-jar",
+						"command": "cp -f build/libs/((application.name))-*-bin.jar .",
+						"properties": []
+					}
+				],
+				"exit_actions": {
+					"default": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": [
+									"#gr-pipeline",
+									""
+								],
+								"message": "Segment Status"
+							}
+						],
+						"code_analysis": {
+							"publish": true,
+							"properties": [
+								{
+									"name": "sonar.verbose",
+									"value": "false"
+								},
+								{
+									"name": "sonar.sources",
+									"value": "src/main"
+								},
+								{
+									"name": "sonar.test",
+									"value": "src/test"
+								},
+								{
+									"name": "sonar.exclusions",
+									"value": "*.tmp,*.temp"
+								},
+								{
+									"name": "sonar.java.source",
+									"value": "1.8"
+								},
+								{
+									"name": "sonar.java.binaries",
+									"value": "build"
+								},
+								{
+									"name": "sonar.java.libraries",
+									"value": "build/libs/((application.name))-v*-bin.jar"
+								},
+								{
+									"name": "sonar.junit.reportPaths",
+									"value": "build/test-results/test"
+								},
+								{
+									"name": "sonar.jacoco.reportPaths",
+									"value": "build/jacoco/test.exec"
+								}
+							]
+						},
+						"delete_instances": true
+					},
+					"on_success": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": false,
+								"to": null,
+								"message": ""
+							}
+						],
+						"code_analysis": null,
+						"delete_instances": true
+					},
+					"on_failure": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment Failed"
+							}
+						],
+						"code_analysis": null,
+						"delete_instances": true
+					},
+					"on_abort": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment run aborted"
+							}
+						],
+						"code_analysis": null,
+						"delete_instances": true
+					}
+				},
+				"properties": [
+					{
+						"name": "foo",
+						"value": "bar"
+					}
+				],
+				"deployment_strategy": {
+					"canaries": 1,
+					"max_in_flight": 1,
+					"canary_watch_time": "5000-30000",
+					"update_watch_time": "5000-30000",
+					"serial": false
+				},
+				"application_init": {
+					"command": "",
+					"arguments": null
+				},
+				"packages": [
+					{
+						"name": "((application.name))",
+						"dependencies": [],
+						"downloads": [],
+						"files": [
+							"((application.name))*"
+						],
+						"package_install_command": "",
+						"installed_path": ""
+					}
+				],
+				"instance_tags": [
+					{
+						"name": "application.name",
+						"value": "((application.name))"
+					}
+				],
+				"post_deployment_actions": {
+					"instances": null,
+					"loadbalanced": false,
+					"loadbalancer": {
+						"TargetGroupName": "",
+						"TargetGroupPort": 0,
+						"TargetGroupProtocol": "",
+						"TargetType": "",
+						"VPCID": "",
+						"HealthCheckEnabled": false,
+						"HealthCheckPort": "",
+						"UnhealthyThresholdCount": 0
+					}
+				}
+			},
+			{
+				"name": "Isolation",
+				"segment_type": "isolation",
+				"run_after": [
+					"Build"
+				],
+				"job_steps": [
+					{
+						"name": "test",
+						"definition": "test",
+						"command": "bin/execute-tests.sh",
+						"properties": []
+					}
+				],
+				"exit_actions": {
+					"default": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": [
+									"#gr-pipeline",
+									""
+								],
+								"message": "Segment Status"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_success": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": false,
+								"to": null,
+								"message": ""
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_failure": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment Failed"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_abort": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment run aborted"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					}
+				},
+				"deployment_strategy": {
+					"canaries": 1,
+					"max_in_flight": 1,
+					"canary_watch_time": "5000-30000",
+					"update_watch_time": "5000-30000",
+					"serial": false
+				},
+				"application_init": {
+					"command": "",
+					"arguments": null
+				},
+				"package_dependencies": [
+					"((application.name))"
+				],
+				"instance_tags": [
+					{
+						"name": "application.name",
+						"value": "((application.name))"
+					}
+				],
+				"instance_groups": [
+					{
+						"name": "((application.name))",
+						"number_of_instances": 1,
+						"persistent_disk_type": "small",
+						"vm_type": "default",
+						"os_type": "default",
+						"networks": [
+							"calculi-isolation-private"
+						],
+						"availability_zones": [
+							"aws-east-1a"
+						],
+						"dependencies": [
+							{
+								"name": "consul",
+								"release": "consul",
+								"properties": [
+									{
+										"name": "consul.servicename",
+										"value": "((application.name))-((segment.name))-((application.shortsha))"
+									},
+									{
+										"name": "consul.environment",
+										"value": "((consul.environment))"
+									},
+									{
+										"name": "consul.datacenter",
+										"value": "((consul.datacenter))"
+									},
+									{
+										"name": "consul.server",
+										"value": "false"
+									},
+									{
+										"name": "consul.joinservers",
+										"value": "((consul.joinservers))"
+									},
+									{
+										"name": "calculi.intermediate.cert",
+										"value": "secret:tls.cert"
+									},
+									{
+										"name": "calculi.intermediate.key",
+										"value": "secret:tls.key"
+									}
+								],
+								"deployment_strategy": {
+									"canary_watch_time": "2000-60000",
+									"update_watch_time": "2000-60000",
+									"serial": true
+								}
+							}
+						]
+					}
+				],
+				"post_deployment_actions": {
+					"instances": null,
+					"loadbalanced": false,
+					"loadbalancer": {
+						"TargetGroupName": "",
+						"TargetGroupPort": 0,
+						"TargetGroupProtocol": "",
+						"TargetType": "",
+						"VPCID": "",
+						"HealthCheckEnabled": false,
+						"HealthCheckPort": "",
+						"UnhealthyThresholdCount": 0
+					}
+				}
+			},
+			{
+				"name": "Integration",
+				"segment_type": "integration",
+				"run_after": [
+					"Build"
+				],
+				"job_steps": [
+					{
+						"name": "test",
+						"definition": "test",
+						"command": "bin/execute-tests.sh",
+						"properties": []
+					}
+				],
+				"exit_actions": {
+					"default": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": [
+									"#gr-pipeline",
+									""
+								],
+								"message": "Segment Status"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_success": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": false,
+								"to": null,
+								"message": ""
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_failure": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment Failed"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_abort": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment run aborted"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					}
+				},
+				"deployment_strategy": {
+					"canaries": 1,
+					"max_in_flight": 1,
+					"canary_watch_time": "5000-30000",
+					"update_watch_time": "5000-30000",
+					"serial": false
+				},
+				"application_init": {
+					"command": "",
+					"arguments": null
+				},
+				"package_dependencies": [
+					"((application.name))"
+				],
+				"instance_tags": [
+					{
+						"name": "application.name",
+						"value": "((application.name))"
+					}
+				],
+				"instance_groups": [
+					{
+						"name": "((application.name))",
+						"number_of_instances": 1,
+						"persistent_disk_type": "small",
+						"vm_type": "default",
+						"os_type": "default",
+						"networks": [
+							"calculi-integration-private"
+						],
+						"availability_zones": [
+							"aws-east-1b"
+						],
+						"dependencies": [
+							{
+								"name": "consul",
+								"release": "consul",
+								"properties": [
+									{
+										"name": "consul.servicename",
+										"value": "((application.name))-((segment.name))-((application.shortsha))"
+									},
+									{
+										"name": "consul.environment",
+										"value": "((consul.environment))"
+									},
+									{
+										"name": "consul.datacenter",
+										"value": "((consul.datacenter))"
+									},
+									{
+										"name": "consul.server",
+										"value": false
+									},
+									{
+										"name": "consul.joinservers",
+										"value": "((consul.joinservers))"
+									},
+									{
+										"name": "calculi.intermediate.cert",
+										"value": "secret:tls.cert"
+									},
+									{
+										"name": "calculi.intermediate.key",
+										"value": "secret:tls.key"
+									}
+								],
+								"deployment_strategy": {
+									"canary_watch_time": "",
+									"update_watch_time": "",
+									"serial": true
+								}
+							}
+						]
+					}
+				],
+				"post_deployment_actions": {
+					"instances": null,
+					"loadbalanced": false,
+					"loadbalancer": {
+						"TargetGroupName": "",
+						"TargetGroupPort": 0,
+						"TargetGroupProtocol": "",
+						"TargetType": "",
+						"VPCID": "",
+						"HealthCheckEnabled": false,
+						"HealthCheckPort": "",
+						"UnhealthyThresholdCount": 0
+					}
+				}
+			},
+			{
+				"name": "Release",
+				"segment_type": "release",
+				"run_after": [
+					"Isolation",
+					"Integration"
+				],
+				"job_steps": [
+					{
+						"name": "test",
+						"definition": "test",
+						"command": "bin/execute-tests.sh",
+						"properties": []
+					}
+				],
+				"exit_actions": {
+					"default": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": [
+									"#gr-pipeline",
+									""
+								],
+								"message": "Segment Status"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_success": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": false,
+								"to": null,
+								"message": ""
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_failure": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment Failed"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_abort": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment run aborted"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					}
+				},
+				"deployment_strategy": {
+					"canaries": 1,
+					"max_in_flight": 1,
+					"canary_watch_time": "5000-30000",
+					"update_watch_time": "5000-30000",
+					"serial": false
+				},
+				"application_init": {
+					"command": "",
+					"arguments": null
+				},
+				"package_dependencies": [
+					"((application.name))"
+				],
+				"instance_tags": [
+					{
+						"name": "application.name",
+						"value": "((application.name))"
+					}
+				],
+				"instance_groups": [
+					{
+						"name": "((application.name))",
+						"number_of_instances": 1,
+						"persistent_disk_type": "small",
+						"vm_type": "default",
+						"os_type": "default",
+						"networks": [
+							"calculi-release-private"
+						],
+						"availability_zones": [
+							"aws-east-1c"
+						],
+						"dependencies": [
+							{
+								"name": "consul",
+								"release": "consul",
+								"properties": [
+									{
+										"name": "consul.servicename",
+										"value": "((application.name))-((segment.name))-((application.shortsha))"
+									},
+									{
+										"name": "consul.environment",
+										"value": "((consul.environment))"
+									},
+									{
+										"name": "consul.datacenter",
+										"value": "((consul.datacenter))"
+									},
+									{
+										"name": "consul.server",
+										"value": false
+									},
+									{
+										"name": "consul.joinservers",
+										"value": "((consul.joinservers))"
+									},
+									{
+										"name": "calculi.intermediate.cert",
+										"value": "secret:tls.cert"
+									},
+									{
+										"name": "calculi.intermediate.key",
+										"value": "secret:tls.key"
+									}
+								],
+								"deployment_strategy": {
+									"canary_watch_time": "",
+									"update_watch_time": "",
+									"serial": true
+								}
+							}
+						]
+					}
+				],
+				"post_deployment_actions": {
+					"instances": null,
+					"loadbalanced": false,
+					"loadbalancer": {
+						"TargetGroupName": "",
+						"TargetGroupPort": 0,
+						"TargetGroupProtocol": "",
+						"TargetType": "",
+						"VPCID": "",
+						"HealthCheckEnabled": false,
+						"HealthCheckPort": "",
+						"UnhealthyThresholdCount": 0
+					}
+				}
+			},
+			{
+				"name": "Production",
+				"segment_type": "production",
+				"run_after": [
+					"Release"
+				],
+				"job_steps": [
+					{
+						"name": "test",
+						"definition": "test",
+						"command": "bin/execute-tests.sh",
+						"properties": []
+					}
+				],
+				"exit_actions": {
+					"default": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": [
+									"#gr-pipeline",
+									""
+								],
+								"message": "Segment Status"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_success": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": false,
+								"to": null,
+								"message": ""
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_failure": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment Failed"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					},
+					"on_abort": {
+						"fetch_logs": true,
+						"notifications": [
+							{
+								"type": "slack",
+								"send_notification": true,
+								"to": null,
+								"message": "Segment run aborted"
+							}
+						],
+						"code_analysis": {
+							"publish": false,
+							"properties": null
+						},
+						"delete_instances": true
+					}
+				},
+				"deployment_strategy": {
+					"canaries": 1,
+					"max_in_flight": 1,
+					"canary_watch_time": "5000-30000",
+					"update_watch_time": "5000-30000",
+					"serial": false
+				},
+				"application_init": {
+					"command": "",
+					"arguments": null
+				},
+				"package_dependencies": [
+					"((application.name))"
+				],
+				"instance_tags": [
+					{
+						"name": "application.name",
+						"value": "((application.name))"
+					}
+				],
+				"instance_groups": [
+					{
+						"name": "((application.name))",
+						"number_of_instances": 1,
+						"persistent_disk_type": "small",
+						"vm_type": "default",
+						"os_type": "default",
+						"networks": [
+							"calculi-production-private"
+						],
+						"availability_zones": [
+							"aws-east-1d"
+						],
+						"dependencies": [
+							{
+								"name": "consul",
+								"release": "consul",
+								"properties": [
+									{
+										"name": "consul.servicename",
+										"value": "((application.name))-((segment.name))-((application.shortsha))"
+									},
+									{
+										"name": "consul.environment",
+										"value": "((consul.environment))"
+									},
+									{
+										"name": "consul.datacenter",
+										"value": "((consul.datacenter))"
+									},
+									{
+										"name": "consul.server",
+										"value": false
+									},
+									{
+										"name": "consul.joinservers",
+										"value": "((consul.joinservers))"
+									},
+									{
+										"name": "calculi.intermediate.cert",
+										"value": "secret:tls.cert"
+									},
+									{
+										"name": "calculi.intermediate.key",
+										"value": "secret:tls.key"
+									}
+								],
+								"deployment_strategy": {
+									"canary_watch_time": "",
+									"update_watch_time": "",
+									"serial": true
+								}
+							}
+						]
+					}
+				],
+				"post_deployment_actions": {
+					"instances": null,
+					"loadbalanced": false,
+					"loadbalancer": {
+						"TargetGroupName": "",
+						"TargetGroupPort": 0,
+						"TargetGroupProtocol": "",
+						"TargetType": "",
+						"VPCID": "",
+						"HealthCheckEnabled": false,
+						"HealthCheckPort": "",
+						"UnhealthyThresholdCount": 0
+					}
+				}
+			}
+		],
+		"exit_actions": {
+			"default": {
+				"fetch_logs": true,
+				"notifications": [
+					{
+						"type": "slack",
+						"send_notification": true,
+						"to": [
+							"#gr-pipeline",
+							""
+						],
+						"message": "Segment Status"
+					}
+				],
+				"code_analysis": {
+					"publish": true,
+					"properties": []
+				},
+				"delete_instances": true
+			},
+			"on_success": {
+				"fetch_logs": true,
+				"notifications": [
+					{
+						"type": "slack",
+						"send_notification": false,
+						"to": null,
+						"message": ""
+					}
+				],
+				"code_analysis": {
+					"publish": true,
+					"properties": null
+				},
+				"delete_instances": true
+			},
+			"on_failure": {
+				"fetch_logs": true,
+				"notifications": [
+					{
+						"type": "slack",
+						"send_notification": true,
+						"to": null,
+						"message": "Segment Failed"
+					}
+				],
+				"code_analysis": {
+					"publish": true,
+					"properties": null
+				},
+				"delete_instances": true
+			},
+			"on_abort": {
+				"fetch_logs": true,
+				"notifications": [
+					{
+						"type": "slack",
+						"send_notification": true,
+						"to": null,
+						"message": "Segment run aborted"
+					}
+				],
+				"code_analysis": {
+					"publish": true,
+					"properties": null
+				},
+				"delete_instances": true
+			}
+		},
+		"default_properties": [
+			{
+				"name": "log.level",
+				"value": "DEBUG",
+				"type": "string"
+			},
+			{
+				"name": "server.port",
+				"value": 8080,
+				"type": "number"
+			}
+		],
+		"deployment_files": [
+			{
+				"source_path": "ci/config/application.config",
+				"target_path": "config/application.config"
+			},
+			{
+				"source_path": "ci/config/service-registry.erb",
+				"target_path": "config/service-registry.json"
+			},
+			{
+				"source_path": "ci/bin/start-service.sh",
+				"target_path": "bin/start-service.sh"
+			},
+			{
+				"source_path": "ci/bin/execute-tests.sh",
+				"target_path": "bin/execute-tests.sh"
+			}
+		],
+		"application_init": {
+			"command": "",
+			"arguments": null
+		},
+		"process": {
+			"init": {
+				"command": "bin/start-service.sh"
+			}
+		},
+		"releases": [
+			{
+				"name": "consul",
+				"version": "latest"
+			}
+		]
+	},
+	"organization": {
+		"orgname": "GR-Product"
+	}
+}

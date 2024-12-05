@@ -1,0 +1,42 @@
+### This file is to configure and start java application
+
+#!/bin/bash
+
+# Setting environment variables
+JOB_NAME=hello-world-java
+JOB_DIR=/var/vcap/jobs/${JOB_NAME}
+PKG_DIR=/var/vcap/packages/${JOB_NAME}
+JAVA_PKG_DIR=/var/vcap/packages/java
+
+# Installing the Consul agent config in the Consul agent data directory
+cp -f ${JOB_DIR}/config/hello-world-java-registry.json /var/vcap/data/consul/.
+# Enable consul to read the file
+chmod 744 /var/vcap/data/consul/hello-world-java-registry.json
+
+# Reload Consul to hook up with the Service configuration
+# Exporting mandatory consul variables to the current shell
+export CONSUL_HTTP_SSL=true
+export CONSUL_CACERT="<%= p("certificate.base.location") %>/cacert/<%= p("consul.environment") %>.cert.pem"
+export CONSUL_CLIENT_CERT="<%= p("certificate.base.location") %>/servercerts/server.cert.pem"
+export CONSUL_CLIENT_KEY="<%= p("certificate.base.location") %>/serverkeys/server.key.pem"
+# Reload consul
+/var/vcap/packages/consul/bin/consul reload
+
+# If datadog agent is present, add application configuration to datadog.yaml and reload datadog agent
+<% if p("java.datadog_agent") == true %>
+  # Create application config folder inside datadog config folder
+  mkdir -p /var/vcap/jobs/dd-agent/config/conf.d/<%= p('java.application.name') %>.d
+  # Grant execution permission on the new application config folder to datadog
+  chmod +x -R /var/vcap/jobs/dd-agent/config/conf.d/<%= p('java.application.name') %>.d
+  # Grant reading and execution permissions on application log folder to datadog
+  chmod 0755 -R ${LOG_DIR}
+  # Copy application config file to the new application config folder inside datadog config folder
+  cp -f ${JOB_DIR}/config/<%= p('java.application.name') %>-datadog-agent.yaml /var/vcap/jobs/dd-agent/config/conf.d/<%= p('java.application.name') %>.d/conf.yaml
+  # Enable datadog log agent
+  grep -q -F "log_enabled: true" /var/vcap/jobs/dd-agent/config/datadog.yaml || echo "log_enabled: true" >> /var/vcap/jobs/dd-agent/config/datadog.yaml
+  # Stop datadog agent and let monit restart it
+  /var/vcap/jobs/dd-agent/bin/agent_ctl stop &
+<% end %>
+
+# Starting java application
+${JAVA_PKG_DIR}/bin/java -jar ${PKG_DIR}/${JOB_NAME}.jar

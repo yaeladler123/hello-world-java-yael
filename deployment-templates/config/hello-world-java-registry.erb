@@ -1,0 +1,17 @@
+{
+   "service":{
+      "name":"<%= p('consul.servicename') %>",
+      "tags":[
+         "<%= p("consul.tag", "primary") %>"
+      ],
+      "address":"",
+      "port":<%= p("server.port") %>,
+      "enable_tag_override":false,
+      "checks":[
+         {
+            "script":"curl http://127.0.0.1:<%= p('server.port') %>",
+            "interval":"10s"
+         }
+      ]
+   }
+}

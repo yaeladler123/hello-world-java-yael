@@ -1,0 +1,850 @@
+{
+  "format": {
+    "version": "1.0"
+  },
+  "application": {
+    "name": "hello-world-java",
+    "language": "java",
+    "scm": {
+      "provider": "git",
+      "url": "ssh://git@git.calculi.com:7999/calculi/hello-world-java.git"
+    },
+    "artifact_store": {
+      "type": "s3",
+      "repositories": [
+        {
+          "category": "rc-packaging",
+          "bucket": "calculi-guide-rails"
+        },
+        {
+          "category": "final-packaging",
+          "bucket": "calculi-guide-rails"
+        }
+      ]
+    },
+    "version": {
+      "initial": "0.0.1",
+      "file": "version"
+    },
+    "is_bosh_release": false
+  },
+  "pipeline": {
+    "segments": [
+      {
+        "name": "build",
+        "segment_type": "build",
+        "job_steps": [
+          {
+            "name": "get-deps-aptget",
+            "command": "echo 'Configuring apt-get'\napt-get upgrade\napt-get update"
+          },
+          {
+            "name": "get-deps-make",
+            "command": "echo 'Installing Gnu Make'\napt-get install make"
+          },
+          {
+            "name": "DEBUG-env",
+            "command": "set +e\nmake about-make\nmake about-dir\nmake about-user\nmake about-env\nmake about-git\nmake about-java\nmake about-gradle\nset -e"
+          },
+          {
+            "name": "build",
+            "command": "make all"
+          },
+          {
+            "name": "DEBUG-dir-build",
+            "command": "find './build/'"
+          }
+        ],
+        "packages": [
+          {
+            "name": "((application.name))-bin",
+            "dependencies": [],
+            "downloads": [],
+            "files": [
+              "build/libs/((application.name))-*-bin.jar"
+            ],
+            "package_install_command": ""
+          },
+          {
+            "name": "((application.name))-src",
+            "dependencies": [],
+            "downloads": [],
+            "files": [
+              "build/libs/((application.name))-*-sources.jar"
+            ],
+            "package_install_command": ""
+          },
+          {
+            "name": "((application.name))-doc",
+            "dependencies": [],
+            "downloads": [],
+            "files": [
+              "build/libs/((application.name))-*-javadoc.jar"
+            ],
+            "package_install_command": ""
+          },
+          {
+            "name": "((application.name))-jmeter",
+            "dependencies": [],
+            "downloads": [
+              {
+                "link": "http://mirrors.gigenet.com/apache//jmeter/binaries/apache-jmeter-4.0.tgz",
+                "name": "apache-jmeter-4.0.tgz"
+              }
+            ],
+            "files": [
+              "ci/config/hello_world.jmx"
+            ],
+            "package_install_command": "set -ex\ntar -zxvf hello-world-java-jmeter/apache-jmeter-4.0.tgz\ncp -Rf apache-jmeter-4.0 ${BOSH_INSTALL_TARGET}"
+          }
+        ],
+        "exit_actions": {
+          "on_success": {
+            "notifications": [],
+            "code_analysis": {
+              "publish": true,
+              "properties": [
+                {
+                  "name": "sonar.verbose",
+                  "value": "false"
+                },
+                {
+                  "name": "sonar.sources",
+                  "value": "src/main"
+                },
+                {
+                  "name": "sonar.tests",
+                  "value": "src/test"
+                },
+                {
+                  "name": "sonar.exclusions",
+                  "value": "*.tmp,*.temp"
+                },
+                {
+                  "name": "sonar.java.source",
+                  "value": "1.8"
+                },
+                {
+                  "name": "sonar.java.binaries",
+                  "value": "build"
+                },
+                {
+                  "name": "sonar.java.libraries",
+                  "value": "build/libs/((application.name))-v*-bin.jar"
+                },
+                {
+                  "name": "sonar.junit.reportPaths",
+                  "value": "build/test-results/test"
+                },
+                {
+                  "name": "sonar.jacoco.reportPaths",
+                  "value": "build/jacoco/test.exec"
+                }
+              ]
+            }
+          },
+          "on_failure": {
+            "notifications": [
+              {
+                "type": "slack",
+                "send_notification": true,
+                "to": [
+                  "#((application.slack.channel))"
+                ],
+                "message": "This is the build segment for ((application.name))"
+              }
+            ]
+          }
+        },
+        "quality_rules": [
+          {
+            "name": "lint_error_count",
+            "description": "Lint error",
+            "properties": [
+              {
+                "name": "threshold_warning",
+                "value": 1
+              },
+              {
+                "name": "threshold_error",
+                "value": 5
+              }
+            ]
+          },
+          {
+            "name": "coverage_percent",
+            "description": "Unit test coverage %",
+            "properties": [
+              {
+                "name": "threshold_warning",
+                "value": 0.5
+              },
+              {
+                "name": "threshold_error",
+                "value": 0.1
+              }
+            ]
+          },
+          {
+            "name": "security_error_count",
+            "description": "Security error",
+            "properties": [
+              {
+                "name": "threshold_error",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "isolation",
+        "run_after": [
+          "build"
+        ],
+        "exit_actions": {
+          "on_failure": {
+            "notifications": [
+              {
+                "type": "slack",
+                "send_notification": true,
+                "to": [
+                  "#((application.slack.channel))"
+                ],
+                "message": "This is the isolation segment for ((application.name))"
+              }
+            ],
+            "fetch_logs": true,
+            "delete_instances": true
+          },
+          "on_success": {
+            "fetch_logs": true,
+            "delete_instances": true
+          }
+        },
+        "deployment_strategy": {
+          "canaries": 1,
+          "max_in_flight": 1,
+          "canary_watch_time": "60000-120000",
+          "update_watch_time": "60000-120000",
+          "serial": false
+        },
+        "instance_tags": [
+          {
+            "name": "application.name",
+            "value": "((application.name))"
+          }
+        ],
+        "package_dependencies": [
+          "((application.name))"
+        ],
+        "instance_groups": [
+          {
+            "name": "((application.name))",
+            "number_of_instances": 1,
+            "persistent_disk_type": "small",
+            "networks": [
+              "calculi-isolation-private"
+            ],
+            "stemcell": "default",
+            "vm_type": "small",
+            "availability_zones": [
+              "aws-east-1a"
+            ],
+            "dependencies": [
+              {
+                "name": "consul",
+                "release": "consul",
+                "properties": [
+                  {
+                    "name": "consul.servicename",
+                    "value": "((application.name))-((segment.name))"
+                  },
+                  {
+                    "name": "consul.environment",
+                    "value": "((consul.environment))"
+                  },
+                  {
+                    "name": "consul.datacenter",
+                    "value": "((consul.datacenter))"
+                  },
+                  {
+                    "name": "consul.server",
+                    "value": false
+                  },
+                  {
+                    "name": "consul.joinservers",
+                    "value": "((consul.joinservers))"
+                  },
+                  {
+                    "name": "calculi.intermediate.cert",
+                    "value": "secret:tls.cert"
+                  },
+                  {
+                    "name": "calculi.intermediate.key",
+                    "value": "secret:tls.key"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "integration",
+        "run_after": [
+          "build"
+        ],
+        "exit_actions": {
+          "on_failure": {
+            "notifications": [
+              {
+                "type": "slack",
+                "send_notification": true,
+                "to": [
+                  "#((application.slack.channel))"
+                ],
+                "message": "This is the integration segment for ((application.name))"
+              }
+            ],
+            "fetch_logs": true,
+            "delete_instances": false
+          },
+          "on_success": {
+            "fetch_logs": true,
+            "delete_instances": false
+          }
+        },
+        "deployment_strategy": {
+          "canaries": 1,
+          "max_in_flight": 1,
+          "canary_watch_time": "60000-120000",
+          "update_watch_time": "60000-120000",
+          "serial": false
+        },
+        "instance_tags": [
+          {
+            "name": "application.name",
+            "value": "((application.name))"
+          }
+        ],
+        "package_dependencies": [
+          "((application.name))-bin",
+          "((application.name))-jmeter"
+        ],
+        "deployment_files": [
+          {
+            "source_path": "ci/bin/execute-tests.sh",
+            "target_path": "bin/execute-tests.sh"
+          }
+        ],
+        "job_steps": [
+          {
+            "name": "run-tests",
+            "command": "bin/execute-tests.sh"
+          }
+        ],
+        "instance_groups": [
+          {
+            "name": "((application.name))",
+            "number_of_instances": 1,
+            "persistent_disk_type": "small",
+            "networks": [
+              "calculi-isolation-private"
+            ],
+            "stemcell": "default",
+            "vm_type": "small",
+            "availability_zones": [
+              "aws-east-1a"
+            ],
+            "dependencies": [
+              {
+                "name": "consul",
+                "release": "consul",
+                "properties": [
+                  {
+                    "name": "consul.servicename",
+                    "value": "((application.name))-((segment.name))"
+                  },
+                  {
+                    "name": "consul.environment",
+                    "value": "((consul.environment))"
+                  },
+                  {
+                    "name": "consul.datacenter",
+                    "value": "((consul.datacenter))"
+                  },
+                  {
+                    "name": "consul.server",
+                    "value": false
+                  },
+                  {
+                    "name": "consul.joinservers",
+                    "value": "((consul.joinservers))"
+                  },
+                  {
+                    "name": "calculi.intermediate.cert",
+                    "value": "secret:tls.cert"
+                  },
+                  {
+                    "name": "calculi.intermediate.key",
+                    "value": "secret:tls.key"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "UAT",
+        "segment_type": "release",
+        "run_after": [
+          "integration",
+          "isolation"
+        ],
+        "exit_actions": {
+          "on_failure": {
+            "notifications": [
+              {
+                "type": "slack",
+                "send_notification": true,
+                "to": [
+                  "#((application.slack.channel))"
+                ],
+                "message": "This is the UAT segment for ((application.name))"
+              }
+            ],
+            "fetch_logs": true,
+            "delete_instances": true
+          },
+          "on_success": {
+            "fetch_logs": true,
+            "delete_instances": true
+          }
+        },
+        "deployment_strategy": {
+          "canaries": 1,
+          "max_in_flight": 1,
+          "canary_watch_time": "60000-120000",
+          "update_watch_time": "60000-120000",
+          "serial": false
+        },
+        "instance_tags": [
+          {
+            "name": "application.name",
+            "value": "((application.name))"
+          }
+        ],
+        "package_dependencies": [
+          "((application.name))-bin"
+        ],
+        "instance_groups": [
+          {
+            "name": "((application.name))",
+            "number_of_instances": 1,
+            "persistent_disk_type": "small",
+            "networks": [
+              "calculi-release-private"
+            ],
+            "stemcell": "default",
+            "vm_type": "small",
+            "availability_zones": [
+              "aws-east-1c"
+            ],
+            "dependencies": [
+              {
+                "name": "consul",
+                "release": "consul",
+                "properties": [
+                  {
+                    "name": "consul.servicename",
+                    "value": "((application.name))-((segment.name))"
+                  },
+                  {
+                    "name": "consul.environment",
+                    "value": "((consul.environment))"
+                  },
+                  {
+                    "name": "consul.datacenter",
+                    "value": "((consul.datacenter))"
+                  },
+                  {
+                    "name": "consul.server",
+                    "value": false
+                  },
+                  {
+                    "name": "consul.joinservers",
+                    "value": "((consul.joinservers))"
+                  },
+                  {
+                    "name": "calculi.intermediate.cert",
+                    "value": "secret:tls.cert"
+                  },
+                  {
+                    "name": "calculi.intermediate.key",
+                    "value": "secret:tls.key"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "production",
+        "segment_type": "production",
+        "run_after": [
+          "UAT"
+        ],
+        "exit_actions": {
+          "on_failure": {
+            "notifications": [
+              {
+                "type": "slack",
+                "send_notification": true,
+                "to": [
+                  "#((application.slack.channel))"
+                ],
+                "message": "This is the Production segment for ((application.name))"
+              }
+            ],
+            "fetch_logs": true,
+            "delete_instances": false
+          },
+          "on_success": {
+            "fetch_logs": true,
+            "delete_instances": false
+          }
+        },
+        "package_dependencies": [
+          "((application.name))-bin"
+        ],
+        "deployment_strategy": {
+          "canaries": 2,
+          "max_in_flight": 2,
+          "canary_watch_time": "60000-120000",
+          "update_watch_time": "60000-120000",
+          "serial": false
+        },
+        "instance_tags": [
+          {
+            "name": "application.name",
+            "value": "((application.name))"
+          }
+        ],
+        "instance_groups": [
+          {
+            "name": "((application.name))",
+            "number_of_instances": 2,
+            "persistent_disk_type": "small",
+            "networks": [
+              "calculi-production-private"
+            ],
+            "stemcell": "default",
+            "vm_type": "small",
+            "availability_zones": [
+              "aws-east-1d"
+            ],
+            "dependencies": [
+              {
+                "name": "consul",
+                "release": "consul",
+                "properties": [
+                  {
+                    "name": "consul.servicename",
+                    "value": "((application.name))"
+                  },
+                  {
+                    "name": "consul.environment",
+                    "value": "PROD"
+                  },
+                  {
+                    "name": "consul.datacenter",
+                    "value": "mgmt"
+                  },
+                  {
+                    "name": "consul.server",
+                    "value": false
+                  },
+                  {
+                    "name": "consul.joinservers",
+                    "value": "[10.12.128.4, 10.12.128.5, 10.12.128.6]"
+                  },
+                  {
+                    "name": "calculi.intermediate.cert",
+                    "value": "secret:tls.cert"
+                  },
+                  {
+                    "name": "calculi.intermediate.key",
+                    "value": "secret:tls.key"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "default_properties": [
+      {
+        "name": "application.name",
+        "description": "Name of the application as is defined in the application manifest",
+        "value": "((application.name))",
+        "export_name": "APPLICATION_NAME"
+      },
+      {
+        "name": "application.language",
+        "description": "Application language/technology",
+        "value": "((application.language))",
+        "export_name": "APPLICATION_LANGUAGE"
+      },
+      {
+        "name": "application.branch",
+        "description": "Branch which the pipeline belongs to",
+        "value": "((application.branch))",
+        "export_name": "APPLICATION_BRANCH"
+      },
+      {
+        "name": "application.sha",
+        "description": "Commit sha associated with a pipeline execution",
+        "value": "((application.sha))",
+        "export_name": "APPLICATION_SHA"
+      },
+      {
+        "name": "application.shortsha",
+        "description": "Commit short sha associated with a pipeline execution",
+        "value": "((application.shortsha))",
+        "export_name": "APPLICATION_SHORTSHA"
+      },
+      {
+        "name": "application.repository",
+        "description": "Name of the application repository",
+        "value": "((application.repository))",
+        "export_name": "APPLICATION_REPOSITORY"
+      },
+      {
+        "name": "application.project",
+        "description": "Name of the SCM project the application belongs to",
+        "value": "((application.project))",
+        "export_name": "APPLICATION_PROJECT"
+      },
+      {
+        "name": "application.slack.channel",
+        "description": "Name of the Slack channel used for application development alerts",
+        "value": "java-demo-ci",
+        "export_name": "APPLICATION_SLACKCHANNEL"
+      },
+      {
+        "name": "organization.name",
+        "description": "Name of the organization associated with Guide-Rails ®",
+        "value": "((organization.name))",
+        "export_name": "ORGANIZATION_NAME"
+      },
+      {
+        "name": "tls.ca.path",
+        "description": "Path to the TLS CA certificate (PEM encoded) for the application",
+        "value": "/etc/sv/monit/cacert",
+        "export_name": "TLS_CA_PATH"
+      },
+      {
+        "name": "tls.certificate",
+        "description": "Path and name to the TLS certificate for the application",
+        "value": "/etc/sv/monit/servercerts/server.cert.pem",
+        "export_name": "TLS_CERTIFICATE"
+      },
+      {
+        "name": "tls.private.key",
+        "description": "Path and name to the TLS private key for the application",
+        "value": "/etc/sv/monit/serverkeys/server.key.pem",
+        "export_name": "TLS_PRIVATE_KEY"
+      },
+      {
+        "name": "tls.corp.ca.path",
+        "description": "Path to the Corporate TLS CA certificate (PEM encoded) for the application",
+        "value": "/etc/sv/monit/corp/cacert",
+        "export_name": "CORP_CA"
+      },
+      {
+        "name": "tls.corp.certificate",
+        "description": "Path and name to the Corporate TLS certificate for the application",
+        "value": "/etc/sv/monit/corp/servercerts/server.cert.pem",
+        "export_name": "SERVER_CERTIFICATE"
+      },
+      {
+        "name": "tls.corp.private.key",
+        "description": "Path and name to the Corporate TLS private key for the application",
+        "value": "/etc/sv/monit/corp/serverkeys/server.key.pem",
+        "export_name": "SERVER_PRIVATE_KEY"
+      },
+      {
+        "name": "application.logs.path",
+        "description": "Base directory on the server where logs should be written to",
+        "value": "/var/vcap/sys/log",
+        "export_name": "APPLICATION_LOGS_DIR"
+      },
+      {
+        "name": "application.package.directory",
+        "description": "Base directory on the server where application packages are installed",
+        "value": "/var/vcap/packages",
+        "export_name": "APPLICATION_PKG_DIR"
+      },
+      {
+        "name": "application.jobs.directory",
+        "description": "Base directory on the server where application jobs are installed",
+        "value": "/var/vcap/jobs",
+        "export_name": "APPLICATION_JOBS_DIR"
+      },
+      {
+        "name": "application.data.directory",
+        "description": "Base directory on the server which can be used for storing application data",
+        "value": "/var/vcap/data",
+        "export_name": "APPLICATION_DATA_DIR"
+      },
+      {
+        "name": "consul.servicename",
+        "description": "Hostname of the application as it is registered in Consul",
+        "value": "((application.name))-((segment.name))",
+        "export_name": "APPLICATION_HOSTNAME"
+      },
+      {
+        "name": "consul.environment",
+        "description": "The application environment",
+        "value": "DEV",
+        "export_name": "APPLICATION_ENV"
+      },
+      {
+        "name": "consul.domain",
+        "description": "Default consul domain",
+        "value": "consul",
+        "export_name": "APPLICATION_DOMAIN"
+      },
+      {
+        "name": "consul.joinservers",
+        "description": "List of Consul servers where the agents will register the application",
+        "value": "[10.21.128.4, 10.21.128.5, 10.21.128.6]"
+      },
+      {
+        "name": "consul.datacenter",
+        "description": "Datacenter in Consul for registration and lookup",
+        "value": "dc1"
+      },
+      {
+        "name": "consul.tag",
+        "description": "Used to register with consul",
+        "value": "((application.shortsha))"
+      },
+      {
+        "name": "server.port",
+        "description": "Default value of the application port",
+        "value": 8080,
+        "export_name": "SERVER_PORT"
+      }
+    ],
+    "deployment_files": [
+      {
+        "source_path": "ci/config/service-registry.erb",
+        "target_path": "config/service-registry.json"
+      },
+      {
+        "source_path": "ci/bin/start-service.sh",
+        "target_path": "bin/start-service.sh"
+      }
+    ],
+    "application_init": {
+      "command": "bin/start-service.sh"
+    },
+    "exit_actions": {
+      "default": {
+        "notifications": [
+          {
+            "type": "slack",
+            "send_notification": true,
+            "to": [
+              "#((application.slack.channel))"
+            ],
+            "message": ""
+          }
+        ],
+        "fetch_logs": true,
+        "delete_instances": true
+      }
+    },
+    "releases": [
+      {
+        "name": "consul",
+        "version": "0.0.66"
+      }
+    ]
+  },
+  "infrastructure": {
+    "notification_configurations": [
+      {
+        "name": "slack",
+        "properties": [
+          {
+            "name": "url",
+            "value": "https://hooks.slack.com/services/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"
+          }
+        ]
+      }
+    ],
+    "resources": [
+      {
+        "name": "git-resource",
+        "image": {
+          "name": "docker.service.calculi.io:443/gr-git-resource",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      },
+      {
+        "name": "idgenerator",
+        "image": {
+          "name": "docker.service.calculi.io:443/gr-id-generator",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      },
+      {
+        "name": "emitter",
+        "image": {
+          "name": "docker.service.calculi.io:443/guide-rails-emitter",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      },
+      {
+        "name": "pipeline",
+        "image": {
+          "name": "docker.service.calculi.io:443/pipeline-image-repiper",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      },
+      {
+        "name": "build",
+        "image": {
+          "name": "docker.service.calculi.io:443/pipeline-image-java-tools",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      },
+      {
+        "name": "deployment",
+        "image": {
+          "name": "docker.service.calculi.io:443/pipeline-image-bosh",
+          "version": "latest",
+          "location": "docker.service.calculi.io:443"
+        }
+      }
+    ],
+    "stemcells": [
+      {
+        "alias": "default",
+        "os": "ubuntu-trusty",
+        "version": "latest"
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+### This file is the java application's datadog config file. As a part of the startup process the, the start-service script will create an application config folder inside datadog config folder and then copy this file into the newly created folder. When datadog agent is restarted, it will find and read this config file to know how to gather log for the java application.
+
+init_config:
+
+# logs configuration
+logs:
+      # type: (mandatory) type of log input source (tcp / udp / file) 
+    - type: file
+      # port / path : (mandatory) Set port if type is tcp or udp. Set path if type is file
+      path: /var/vcap/data/sys/log/<%= p("java.application.name") %>/*.log
+      # source : (mandatory) attribute that defines which integration is sending the logs
+      source: <%= p("java.application.name") %>
+      # service : (mandatory) name of the service owning the log
+      service: <%= p("consul.servicename") %>.<%= p("java.application.name") %>.<%= spec.index %>
+      #  tags: (optional) add tags to each logs collected, a list of key: value pairs
+      tags: 
+      - environment: <%= p("consul.environment") %> 
